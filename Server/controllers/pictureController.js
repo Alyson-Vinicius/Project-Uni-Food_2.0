@@ -1,5 +1,5 @@
 const Vendedor = require("../models/Vendedor");
-const bucket = require("../config/firebaseConfig");
+//const bucket = require("../config/firebaseConfig");
 
 // Salvar imagem e associar a um vendedor
 exports.createPerfil = async (req, res) => {
