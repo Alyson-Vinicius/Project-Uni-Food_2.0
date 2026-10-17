@@ -1,5 +1,5 @@
 const Cliente = require('../models/Cliente');
-const admin = require('../config/firebaseConfig');
+//const admin = require('../config/firebaseConfig');
 const bcrypt = require('bcryptjs');
 
 class ClienteController {
