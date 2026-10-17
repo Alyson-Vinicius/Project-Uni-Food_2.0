@@ -1,50 +1,51 @@
-// Imports
+
 require('dotenv').config();
+
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
+const path = require('path');
+
 const app = express();
-const pedidoRoutes = require('./routes/pedidos');
-
-
 
 // Importar as rotas
 const routes = require('./routes');
 
-
-// Config JSON response
-app.use(express.json());
-const path = require('path');
-
-// Middleware para servir arquivos estáticos da pasta 'uploads'
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
-
-// rotas para pedidos
-app.use('/api', pedidoRoutes);
-
-// Configuração do CORS
+// Middlewares
 app.use(cors({
     origin: '*',
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
     allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 
+app.use(express.json());
 
+// Servir arquivos estáticos da pasta uploads
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// Credenciais
-const dbUser = process.env.DB_USER;
-const dbPassword = process.env.DB_PASS;
+// Rota inicial e demais rotas da API
+app.use('/', routes);
 
-// String de conexão com o MongoDB
-mongoose.connect(`mongodb+srv://${dbUser}:${dbPassword}@cluster0.qkzbs.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`, {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-    serverSelectionTimeoutMS: 60000, // 60 segundos
-    socketTimeoutMS: 60000, // 60 segundos
+// Conexão com o MongoDB Atlas
+const mongoUri = process.env.MONGO_URI;
+
+if (!mongoUri) {
+    console.error('Erro: MONGO_URI não foi definida no arquivo Server/.env');
+    process.exit(1);
+}
+
+mongoose.connect(mongoUri, {
+    serverSelectionTimeoutMS: 60000,
+    socketTimeoutMS: 60000,
 })
 .then(() => {
-    console.log("Conectado ao banco!");
-    app.use(routes);
-    app.listen(3000, () => console.log('Servidor rodando na porta 3000!'));
+    console.log('Conectado ao MongoDB Atlas!');
+
+    app.listen(3000, '0.0.0.0', () => {
+        console.log('Servidor rodando na porta 3000!');
+    });
 })
-.catch((err) => console.error("Erro ao conectar ao MongoDB:", err));
+.catch((err) => {
+    console.error('Erro ao conectar ao MongoDB:', err.message);
+    process.exit(1);
+});
