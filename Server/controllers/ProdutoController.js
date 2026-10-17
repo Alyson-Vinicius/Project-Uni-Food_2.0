@@ -1,5 +1,5 @@
 const Produto = require('../models/Produto');
-const bucket = require('../config/firebaseConfig');
+//const bucket = require('../config/firebaseConfig');
 const mongoose = require('mongoose');
 const Vendedor = require('../models/Vendedor');
 class ProdutoController {
@@ -10,6 +10,12 @@ class ProdutoController {
             const quantidade = Number(req.body.quantidade);
             const preco = Number(req.body.preco);
             const file = req.file;
+
+            if (file) {
+    return res.status(400).json({
+        msg: "O envio de imagens está temporariamente desativado."
+    });
+}
 
 
             if (quantidade === undefined) {
