@@ -5,7 +5,7 @@ const vendedorRouter = require('./vendedor');
 const clienteRouter = require('./cliente');
 const produtoRouter = require('./produtos');
 const pedidoRouter = require('./pedidos');
-const testeRouter = require('./teste');
+//const testeRouter = require('./teste');
 
 
 const router = express.Router();
@@ -22,7 +22,7 @@ router.use('/produto', produtoRouter);  // Rota de produto
 router.use('/pictures', pictureRouter); // Rota de imagens
 router.use('/auth', authRouter);    // Rota de autenticação
 router.use('/pedidos', pedidoRouter); // Rota de pedidos
-router.use('/', testeRouter);  // Rota de teste
+//router.use('/', testeRouter);  // Rota de teste
 
 
 module.exports = router;
