@@ -1,4 +1,3 @@
-
 const express = require('express');
 const jwt = require('jsonwebtoken');
 const axios = require('axios');
@@ -16,7 +15,6 @@ const router = express.Router();
 const getModelByType = (tipo) => {
     if (tipo === 'vendedor') return Vendedor;
     if (tipo === 'cliente') return Cliente;
-
     return null;
 };
 
@@ -49,7 +47,6 @@ router.post('/register/:tipo', async (req, res) => {
     let firebaseUID = null;
 
     try {
-        // Verifica se já existe um usuário com esse e-mail no MongoDB
         const usuarioExistente = await Model.findOne({ email });
 
         if (usuarioExistente) {
@@ -67,7 +64,6 @@ router.post('/register/:tipo', async (req, res) => {
 
         firebaseUID = userRecord.uid;
 
-        // Prepara os dados que serão salvos no MongoDB
         const dadosUsuario = {
             firebaseUID,
             nome,
@@ -84,11 +80,10 @@ router.post('/register/:tipo', async (req, res) => {
             }
         }
 
-        // Salva o usuário no MongoDB Atlas
+        // Salva o usuário no MongoDB
         const user = new Model(dadosUsuario);
         await user.save();
 
-        // Não retorna a senha nem outros dados desnecessários
         const usuarioResposta = user.toObject();
         delete usuarioResposta.senha;
 
@@ -98,17 +93,20 @@ router.post('/register/:tipo', async (req, res) => {
         });
 
     } catch (error) {
-        console.error('Erro ao cadastrar usuário:', error.message);
+        console.error(
+            'Erro ao cadastrar usuário:',
+            error.code || error.message
+        );
 
-        // Se o Firebase criou a conta, mas o MongoDB falhou,
-        // tenta remover a conta criada para evitar inconsistência.
+        // Se o MongoDB falhar após a criação no Firebase,
+        // tenta remover a conta criada para manter a consistência.
         if (firebaseUID) {
             try {
                 await admin.auth().deleteUser(firebaseUID);
             } catch (deleteError) {
                 console.error(
-                    'Não foi possível remover a conta do Firebase:',
-                    deleteError.message
+                    'Falha ao limpar conta do Firebase:',
+                    deleteError.code || deleteError.message
                 );
             }
         }
@@ -122,6 +120,15 @@ router.post('/register/:tipo', async (req, res) => {
         if (error.code === 'auth/email-already-exists') {
             return res.status(409).json({
                 msg: 'Este e-mail já está cadastrado no Firebase.'
+            });
+        }
+
+        if (
+            error.code === 'auth/invalid-email' ||
+            error.code === 'auth/weak-password'
+        ) {
+            return res.status(422).json({
+                msg: 'E-mail inválido ou senha fora dos requisitos.'
             });
         }
 
@@ -144,26 +151,41 @@ router.post('/login/:tipo', async (req, res) => {
         });
     }
 
-    if (!email || !senha) {
+    if (
+        typeof email !== 'string' ||
+        typeof senha !== 'string' ||
+        !email.trim() ||
+        !senha
+    ) {
         return res.status(422).json({
             msg: 'Informe o e-mail e a senha.'
         });
     }
 
-    try {
-        if (!process.env.FIREBASE_API_KEY || !process.env.SECRET) {
-            throw new Error('Configuração de autenticação ausente.');
-        }
+    if (!process.env.FIREBASE_API_KEY || !process.env.SECRET) {
+        console.error('Login indisponível: configuração ausente.');
 
-        // Autentica o usuário no Firebase
+        return res.status(500).json({
+            msg: 'A autenticação não está configurada corretamente no servidor.'
+        });
+    }
+
+    try {
+        // Autentica no Firebase Authentication
         const firebaseAuthUrl =
             `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${process.env.FIREBASE_API_KEY}`;
 
-        const { data } = await axios.post(firebaseAuthUrl, {
-            email,
-            password: senha,
-            returnSecureToken: true
-        });
+        const { data } = await axios.post(
+            firebaseAuthUrl,
+            {
+                email: email.trim(),
+                password: senha,
+                returnSecureToken: true
+            },
+            {
+                timeout: 10000
+            }
+        );
 
         // Procura o usuário correspondente no MongoDB
         const user = await Model.findOne({
@@ -172,7 +194,7 @@ router.post('/login/:tipo', async (req, res) => {
 
         if (!user) {
             return res.status(404).json({
-                msg: 'Usuário autenticado no Firebase, mas não encontrado no banco de dados.'
+                msg: 'Usuário autenticado no Firebase, mas não encontrado no banco de dados para este tipo de conta.'
             });
         }
 
@@ -190,7 +212,6 @@ router.post('/login/:tipo', async (req, res) => {
             telefone: user.telefone
         };
 
-        // Campos específicos de vendedor
         if (tipo === 'vendedor') {
             usuarioResposta.imagemPerfil = user.imagemPerfil;
             usuarioResposta.imagemCapa = user.imagemCapa;
@@ -206,18 +227,71 @@ router.post('/login/:tipo', async (req, res) => {
         });
 
     } catch (error) {
-        const firebaseError = error.response?.data?.error?.message;
+        const firebaseError =
+            error.response?.data?.error?.message;
 
-        console.error(
-            'Erro no login:',
-            firebaseError || error.message
-        );
-
+        // Registra somente o código/mensagem do erro.
+        // Não registra senha, token ou chave da API.
         if (firebaseError) {
-            return res.status(401).json({
-                msg: 'E-mail ou senha inválidos.'
+            console.error(
+                'Erro de autenticação Firebase:',
+                firebaseError
+            );
+
+            const errosDeCredenciais = [
+                'INVALID_LOGIN_CREDENTIALS',
+                'EMAIL_NOT_FOUND',
+                'INVALID_PASSWORD',
+                'USER_DISABLED'
+            ];
+
+            if (errosDeCredenciais.includes(firebaseError)) {
+                return res.status(401).json({
+                    msg: 'E-mail ou senha inválidos.'
+                });
+            }
+
+            if (firebaseError === 'EMAIL_EXISTS') {
+                return res.status(401).json({
+                    msg: 'Não foi possível autenticar com esses dados.'
+                });
+            }
+
+            if (
+                firebaseError === 'API_KEY_INVALID' ||
+                firebaseError === 'INVALID_API_KEY'
+            ) {
+                return res.status(500).json({
+                    msg: 'A chave da API do Firebase está inválida.'
+                });
+            }
+
+            if (
+                firebaseError === 'OPERATION_NOT_ALLOWED'
+            ) {
+                return res.status(500).json({
+                    msg: 'O método de login por e-mail e senha não está habilitado no Firebase.'
+                });
+            }
+
+            return res.status(502).json({
+                msg: 'O Firebase retornou um erro durante a autenticação.',
+                codigo: firebaseError
             });
         }
+
+        if (error.code === 'ECONNABORTED') {
+            console.error('Login: tempo limite de conexão com o Firebase.');
+
+            return res.status(504).json({
+                msg: 'O serviço de autenticação demorou para responder. Tente novamente.'
+            });
+        }
+
+        console.error(
+            'Erro interno no login:',
+            error.message
+        );
 
         return res.status(500).json({
             msg: 'Não foi possível realizar o login.'
@@ -229,7 +303,7 @@ router.post('/login/:tipo', async (req, res) => {
 router.post('/reset-password', async (req, res) => {
     const { email } = req.body;
 
-    if (!email) {
+    if (typeof email !== 'string' || !email.trim()) {
         return res.status(400).json({
             msg: 'O e-mail é obrigatório.'
         });
@@ -237,10 +311,10 @@ router.post('/reset-password', async (req, res) => {
 
     try {
         const resetLink =
-            await admin.auth().generatePasswordResetLink(email);
+            await admin.auth().generatePasswordResetLink(email.trim());
 
         await enviarEmail(
-            email,
+            email.trim(),
             'Redefinição de senha',
             `<p>Olá! Para redefinir sua senha, acesse o link abaixo:</p>
              <p><a href="${resetLink}">Redefinir minha senha</a></p>`
@@ -253,7 +327,7 @@ router.post('/reset-password', async (req, res) => {
     } catch (error) {
         console.error(
             'Erro ao redefinir senha:',
-            error.message
+            error.code || error.message
         );
 
         return res.status(500).json({
@@ -266,7 +340,7 @@ router.post('/reset-password', async (req, res) => {
 router.post('/send-verification-email', async (req, res) => {
     const { email } = req.body;
 
-    if (!email) {
+    if (typeof email !== 'string' || !email.trim()) {
         return res.status(400).json({
             msg: 'O e-mail é obrigatório.'
         });
@@ -274,7 +348,7 @@ router.post('/send-verification-email', async (req, res) => {
 
     try {
         const verifyLink =
-            await admin.auth().generateEmailVerificationLink(email);
+            await admin.auth().generateEmailVerificationLink(email.trim());
 
         return res.status(200).json({
             msg: 'Link de verificação gerado com sucesso.',
@@ -284,7 +358,7 @@ router.post('/send-verification-email', async (req, res) => {
     } catch (error) {
         console.error(
             'Erro ao gerar link de verificação:',
-            error.message
+            error.code || error.message
         );
 
         return res.status(500).json({
